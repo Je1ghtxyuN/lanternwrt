@@ -1,0 +1,179 @@
+{
+  "board": {
+    "model": "OpenWrt router",
+    "release": {
+      "distribution": "OpenWrt",
+      "version": "25.12.0"
+    }
+  },
+  "uptime": 288000,
+  "cpu": [],
+  "memory": {
+    "total": 536870912,
+    "available": 257949696
+  },
+  "storage": 43,
+  "interfaces": [
+    {
+      "name": "wan",
+      "protocol": "pppoe",
+      "device": "pppoe-wan",
+      "up": true,
+      "addresses": [
+        "192.0.2.10/24",
+        "2001:db8::10/64"
+      ],
+      "dns": [
+        "192.0.2.53"
+      ]
+    },
+    {
+      "name": "lan",
+      "protocol": "static",
+      "device": "br-lan",
+      "up": true,
+      "addresses": [
+        "192.168.1.1/24"
+      ],
+      "dns": []
+    },
+    {
+      "name": "wwan",
+      "protocol": "dhcp",
+      "device": "wlan1",
+      "up": false,
+      "addresses": [],
+      "dns": []
+    }
+  ],
+  "wifi": [
+    {
+      "id": "main",
+      "ssid": "Home",
+      "mode": "ap",
+      "band": "2g",
+      "channel": "6",
+      "encryption": "psk2",
+      "network": [
+        "lan"
+      ],
+      "up": true
+    },
+    {
+      "id": "fast",
+      "ssid": "Home 5 GHz",
+      "mode": "ap",
+      "band": "5g",
+      "channel": "36",
+      "encryption": "sae-mixed",
+      "network": [
+        "lan"
+      ],
+      "up": true
+    },
+    {
+      "id": "uplink",
+      "ssid": "Upstream",
+      "mode": "sta",
+      "band": "5g",
+      "network": [
+        "wwan"
+      ],
+      "up": false
+    }
+  ],
+  "ports": [
+    {
+      "name": "eth0",
+      "type": "Network device",
+      "up": true,
+      "carrier": true,
+      "speed": "1000F",
+      "mtu": 1500
+    },
+    {
+      "name": "br-lan",
+      "type": "bridge",
+      "up": true,
+      "carrier": true,
+      "mtu": 1500
+    }
+  ],
+  "leases": [
+    {
+      "ip": "192.168.1.10",
+      "mac": "02:00:00:00:00:10",
+      "name": "Workstation",
+      "expires": 0
+    },
+    {
+      "ip": "192.168.1.12",
+      "mac": "02:00:00:00:00:12",
+      "name": "Phone",
+      "expires": 0
+    },
+    {
+      "ip": "192.168.1.19",
+      "mac": "02:00:00:00:00:19",
+      "name": "Media server",
+      "expires": 0
+    }
+  ],
+  "routes": {
+    "4": [
+      "default via 192.0.2.1 dev pppoe-wan",
+      "192.168.1.0/24 dev br-lan"
+    ],
+    "6": [
+      "2001:db8::/64 dev pppoe-wan"
+    ]
+  },
+  "counters": {
+    "pppoe-wan": [
+      0,
+      0
+    ],
+    "br-lan": [
+      0,
+      0
+    ]
+  },
+  "configs": {
+    "dhcp": [
+      {
+        "id": "lan",
+        "type": "dhcp",
+        "interface": "lan",
+        "start": "100",
+        "limit": "100",
+        "leasetime": "12h"
+      }
+    ],
+    "firewall": [
+      {
+        "id": "wan",
+        "type": "zone",
+        "name": "wan",
+        "network": [
+          "wan",
+          "wwan"
+        ],
+        "input": "REJECT",
+        "output": "ACCEPT",
+        "forward": "REJECT",
+        "masq": "1"
+      }
+    ],
+    "network": [
+      {
+        "id": "lan_dev",
+        "type": "device",
+        "name": "br-lan",
+        "ports": [
+          "lan1",
+          "lan2"
+        ]
+      }
+    ]
+  }
+}
