@@ -1,11 +1,19 @@
+import os
+import subprocess
 import unittest
 from unittest.mock import patch
 
-from lanternwrt.router import apply_wifi, snapshot, wifi_values
+from lanternwrt.router import apply_wifi, restricted_read_script, snapshot, wifi_values
 from lanternwrt.server import State
 
 
 class RouterTests(unittest.TestCase):
+    def test_restricted_collector_refuses_unexpected_command_before_reading(self):
+        result = subprocess.run(["sh"], input=restricted_read_script(), text=True,
+                                capture_output=True, env={**os.environ, "SSH_ORIGINAL_COMMAND": "id"})
+        self.assertEqual(result.returncode, 126)
+        self.assertEqual(result.stdout, "")
+
     def test_wired_router_with_custom_interface_name(self):
         data = snapshot("""
 @@interfaces

@@ -42,6 +42,54 @@ section routes4 ip -4 route show
 section routes6 ip -6 route show
 """ + "\n".join(f"section {name} ubus call uci get '{json.dumps({'config': name})}'" for name in PACKAGES) + "\nexit 0"
 
+SAFE_UCI_SCRIPT = """
+import { cursor } from 'uci';
+const config = cursor();
+const fields = split(ARGV[1], ' ');
+const values = {};
+config.foreach(ARGV[0], null, (section) => {
+    const row = {'.type': section['.type']};
+    for (let key in fields)
+        if (key in section)
+            row[key] = section[key];
+    values[section['.name']] = row;
+});
+printf('%J\\n', {values});
+"""
+
+SAFE_WIRELESS_SCRIPT = """
+import { connect } from 'ubus';
+const radios = connect().call('network.wireless', 'status', {}) ?? {};
+for (let name in keys(radios)) {
+    const radio = radios[name];
+    delete radio.config;
+    for (let iface in radio.interfaces ?? []) {
+        const data = {};
+        for (let field in ['mode', 'ssid', 'encryption', 'network', 'disabled'])
+            if (iface.config && field in iface.config)
+                data[field] = iface.config[field];
+        iface.config = data;
+        delete iface.vlans;
+    }
+}
+printf('%J\\n', radios);
+"""
+
+
+def restricted_read_script():
+    """Build a self-contained collector for an SSH forced command on OpenWrt."""
+    script = READ_SCRIPT.replace("section wifi_status ubus call network.wireless status",
+                                 shlex.join(["section", "wifi_status", "ucode", "-e", SAFE_WIRELESS_SCRIPT]))
+    for name, fields in PACKAGES.items():
+        source = f"section {name} ubus call uci get '{json.dumps({'config': name})}'"
+        script = script.replace(source, shlex.join(["section", name, "ucode", "-e", SAFE_UCI_SCRIPT, "--", name, fields]))
+    return """#!/bin/sh
+case "${SSH_ORIGINAL_COMMAND:-}" in
+    "sh -s") ;;
+    *) exit 126 ;;
+esac
+""" + script
+
 
 class RouterError(RuntimeError):
     pass

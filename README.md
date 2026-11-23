@@ -14,6 +14,8 @@ A self-hosted WebUI for OpenWrt. View interfaces, traffic and router resources f
 
 LanternWrt runs on a separate host and reads the router through SSH and ubus. Interface names and available Wi-Fi capabilities come from the device. This is an early release. Interface, DHCP/DNS, firewall and routing screens are currently read-only.
 
+The [beta release](https://github.com/Je1ghtxyuN/lanternwrt/releases/tag/v0.1.0-beta) supports monitoring and evaluation.
+
 ## Quick start
 
 Prerequisites: Python 3.10+ and OpenSSH for live router mode. The demo requires only Python.
@@ -53,13 +55,15 @@ docker run --rm -p 127.0.0.1:8787:8787 lanternwrt
 
 For router mode, add `--router` after the image name. Set `LANTERN_SSH_TARGET` and `LANTERN_SSH_CONFIG=/ssh/config` with Docker's `-e` flags, and mount a dedicated SSH configuration and verified host keys read-only under `/ssh`. Mount the dedicated private key read-only as well. The image runs as UID 10001. The configuration, key and known-hosts paths must be accessible to that UID, and the SSH config should reference their container paths explicitly.
 
+For a read-only deployment using Dropbear, you can [restrict the monitoring key to the status collector](docs/read-only-ssh.md).
+
 ### Optional Wi-Fi writes
 
 Set `LANTERN_ENABLE_WRITES=1` to enable edits to existing APs. Reads and writes use the host's SSH identity. Writes require a firmware version with the relevant rpcd session and UCI methods, and the ability to create an ephemeral UCI session. Apply, then explicitly confirm before the rollback window ends. Use a wired management path when changing the Wi-Fi network you are connected to.
 
 ## Compatibility and development
 
-Read-only collection has been smoke-tested on a 360 T7 running Kwrt 25.12.0. The demo and automated tests run without a router. Other OpenWrt builds can expose different ubus objects and DHCP lease formats. Live configuration changes are experimental.
+Read-only collection has been smoke-tested on a 360 T7 running Kwrt 25.12.0 and an x86/64 VM running stock OpenWrt 25.12.6. The Kwrt test covered telemetry, read-only enforcement and restarting the separate Linux Docker container. The x86/64 VM test covered wired telemetry. The demo and automated tests run without a router. Other OpenWrt builds can expose different ubus objects and DHCP lease formats. Live configuration changes are experimental.
 
 ```sh
 python3 -m unittest discover -s tests
