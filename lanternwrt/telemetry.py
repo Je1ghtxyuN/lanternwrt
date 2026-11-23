@@ -100,16 +100,18 @@ def wireless_status(config, get, leases, neighbors):
         assoc = get(f"assoc:{ifname}")
         peers = assoc.get("results", []) if assoc is not None else None
         mode = row.get("mode")
-        if mode == "sta" and peers is not None:
-            up = bool(peers)
-        elif row.get("disabled") in (True, "1") or (live or {}).get(row.get("device"), {}).get("disabled") is True:
+        interface_disabled = row.get("disabled") in (True, "1", 1)
+        radio_disabled = radios.get(row.get("device"), {}).get("disabled") in (True, "1", 1) or (
+            (live or {}).get(row.get("device"), {}).get("disabled") is True)
+        if interface_disabled or radio_disabled:
             up = False
+        elif mode == "sta" and peers is not None:
+            up = bool(peers)
         else:
             up = bool(ifname) if (row.get("device") in (live or {})) else None
         encryption = select(info.get("encryption", {}), "enabled wpa authentication ciphers")
         row.update({
-            "ifname": ifname, "up": up, "disabled": row.get("disabled") in (True, "1") or
-            (live or {}).get(row.get("device"), {}).get("disabled") is True,
+            "ifname": ifname, "up": up, "disabled": interface_disabled, "radioDisabled": radio_disabled,
             "security": encryption, "peerCount": len(peers) if peers is not None else None,
             **select(info, "channel frequency bitrate bssid signal noise htmode"),
         })

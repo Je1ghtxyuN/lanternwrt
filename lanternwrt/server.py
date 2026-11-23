@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .router import RouterError, apply_wifi, read_router, rpc
+from .router import RouterError, UnconfirmedApply, apply_network_config, apply_wifi, read_router, rpc
 
 STATIC = Path(__file__).with_name("static")
 DEMO = Path(__file__).with_name("demo.json")
@@ -37,25 +37,45 @@ class State:
             return self.cached
 
     def wifi(self, action, data):
+        return self.change(action, data, wireless=True)
+
+    def transaction_status(self):
+        with self.write_lock:
+            return self._pending_status()
+
+    def _pending_status(self):
+        remaining = max(0, int(self.pending[1] - time.monotonic() + 0.999)) if self.pending else 0
+        if not remaining:
+            self.pending = None
+        return {"pending": self.pending is not None, "remaining": remaining}
+
+    def change(self, action, data, *, wireless=False):
         if not self.writes:
             raise PermissionError
         with self.write_lock:
-            now = time.monotonic()
-            if self.pending and self.pending[1] <= now:
-                self.pending = None
+            self._pending_status()
             if action == "apply":
                 if self.pending:
                     raise BlockingIOError
-                start = time.monotonic()
-                self.pending = (apply_wifi(data.get("id"), data.get("values")), start + 60)
+                try:
+                    if wireless:
+                        session = apply_wifi(data.get("id"), data.get("values"))
+                    else:
+                        session = apply_network_config(data.get("resource"), data.get("id"), data.get("values"),
+                                                       remove=data.get("remove", False))
+                except UnconfirmedApply as exc:
+                    self.pending = (exc.session, exc.deadline)
+                    self.cached_at = 0
+                    return {**self._pending_status(), "unconfirmed": True}
+                else:
+                    self.pending = (session, time.monotonic() + 58)
             else:
                 if not self.pending:
                     raise BlockingIOError
                 rpc("uci", action, {"ubus_rpc_session": self.pending[0]})
                 self.pending = None
             self.cached_at = 0
-            return {"remaining": max(0, round(self.pending[1] - time.monotonic())) if self.pending else 0,
-                    "pending": self.pending is not None}
+            return self._pending_status()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -87,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.accepted_host():
             return self.json(403, {"error": "forbidden"})
         path = urlsplit(self.path).path
+        if path == "/api/change":
+            return self.json(200, self.server.state.transaction_status())
         if path == "/api/status":
             try:
                 return self.json(200, self.server.state.status())
@@ -101,7 +123,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if not self.accepted_host() or origin not in self.server.state.origins or urlsplit(origin).netloc != self.headers.get("Host"):
             return self.json(403, {"error": "forbidden"})
-        actions = {"/api/wifi/apply": "apply", "/api/wifi/confirm": "confirm", "/api/wifi/rollback": "rollback"}
+        actions = {f"/api/{area}/{action}": action for area in ("wifi", "change")
+                   for action in ("apply", "confirm", "rollback")}
         action = actions.get(self.path)
         if action is None:
             return self.json(404, {"error": "not_found"})
@@ -112,7 +135,7 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size))
             if not isinstance(data, dict):
                 raise ValueError
-            return self.json(200, self.server.state.wifi(action, data))
+            return self.json(200, self.server.state.change(action, data, wireless=self.path.startswith("/api/wifi/")))
         except ValueError:
             return self.json(400, {"error": "invalid_config"})
         except PermissionError:

@@ -4,12 +4,14 @@ import os
 import re
 import shlex
 import subprocess
+import time
 
+from .configuration import Change, RESOURCES, build_change
 from .telemetry import interface_status, network_devices, wireless_status
 
 
 PACKAGES = {
-    "network": "name proto device type ports vlan vid ipaddr netmask gateway dns metric",
+    "network": "name proto device type ports vlan vid interface target ipaddr ip6addr netmask gateway ip6gw dns metric",
     "wireless": "device mode ssid encryption network disabled band channel htmode",
     "dhcp": "interface start limit leasetime ignore dhcpv4 dhcpv6 ra mac ip name server",
     "firewall": "name network input output forward masq src dest proto src_ip dest_ip src_dport dest_port target family enabled",
@@ -60,19 +62,39 @@ printf('%J\\n', {values});
 SAFE_WIRELESS_SCRIPT = """
 import { connect } from 'ubus';
 const radios = connect().call('network.wireless', 'status', {}) ?? {};
+const safe = {};
 for (let name in keys(radios)) {
     const radio = radios[name];
-    delete radio.config;
+    const entry = {interfaces: []};
+    for (let field in ['up', 'pending', 'disabled'])
+        if (field in radio)
+            entry[field] = radio[field];
     for (let iface in radio.interfaces ?? []) {
         const data = {};
         for (let field in ['mode', 'ssid', 'encryption', 'network', 'disabled'])
             if (iface.config && field in iface.config)
                 data[field] = iface.config[field];
-        iface.config = data;
-        delete iface.vlans;
+        push(entry.interfaces, {section: iface.section, ifname: iface.ifname, config: data});
     }
+    safe[name] = entry;
 }
-printf('%J\\n', radios);
+printf('%J\\n', safe);
+"""
+
+SAFE_INTERFACE_SCRIPT = """
+import { connect } from 'ubus';
+const dump = connect().call('network.interface', 'dump', {});
+if (type(dump?.interface) != 'array')
+    exit(1);
+const interface = map(dump.interface, (item) => {
+    const row = {};
+    for (let k in ['interface', 'proto', 'up', 'pending', 'uptime', 'device', 'l3_device',
+                   'ipv4-address', 'ipv6-address', 'ipv6-prefix-assignment', 'dns-server', 'route'])
+        if (k in item)
+            row[k] = item[k];
+    return row;
+});
+printf('%J\\n', {interface});
 """
 
 
@@ -80,6 +102,8 @@ def restricted_read_script():
     """Build a self-contained collector for an SSH forced command on OpenWrt."""
     script = READ_SCRIPT.replace("section wifi_status ubus call network.wireless status",
                                  shlex.join(["section", "wifi_status", "ucode", "-e", SAFE_WIRELESS_SCRIPT]))
+    script = script.replace("section interfaces ubus call network.interface dump",
+                            shlex.join(["section", "interfaces", "ucode", "-e", SAFE_INTERFACE_SCRIPT]))
     for name, fields in PACKAGES.items():
         source = f"section {name} ubus call uci get '{json.dumps({'config': name})}'"
         script = script.replace(source, shlex.join(["section", name, "ucode", "-e", SAFE_UCI_SCRIPT, "--", name, fields]))
@@ -95,6 +119,17 @@ class RouterError(RuntimeError):
     pass
 
 
+class RouterTransportError(RouterError):
+    pass
+
+
+class UnconfirmedApply(RouterError):
+    def __init__(self, session, deadline):
+        super().__init__("Router did not acknowledge apply")
+        self.session = session
+        self.deadline = deadline
+
+
 def run_ssh(command, *, stdin=None):
     target = os.environ.get("LANTERN_SSH_TARGET", "")
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:@-]*", target):
@@ -106,7 +141,9 @@ def run_ssh(command, *, stdin=None):
     try:
         result = subprocess.run(args, input=stdin, text=True, capture_output=True, timeout=14)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RouterError("SSH connection failed") from exc
+        raise RouterTransportError("SSH connection failed") from exc
+    if result.returncode == 255:
+        raise RouterTransportError("SSH connection interrupted")
     if result.returncode:
         raise RouterError("Router command failed")
     return result.stdout
@@ -138,7 +175,8 @@ def snapshot(raw):
         config = get(name)
         configs[name] = None if config is None else [
             {"id": section_id, "type": section.get(".type"),
-             **{field: section[field] for field in fields.split() if field in section}}
+             **{("deviceType" if field == "type" else field): section[field]
+                for field in fields.split() if field in section}}
             for section_id, section in config.get("values", {}).items()
         ]
     network_config = {item["id"]: item for item in configs["network"] or [] if item["type"] == "interface"}
@@ -171,7 +209,7 @@ def snapshot(raw):
 
 
 def wifi_values(data):
-    if not isinstance(data, dict) or not data or set(data) - {"ssid", "key"}:
+    if not isinstance(data, dict) or not data or set(data) - {"ssid", "key", "disabled"}:
         raise ValueError("invalid Wi-Fi values")
     for key, value in data.items():
         if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
@@ -181,6 +219,8 @@ def wifi_values(data):
             raise ValueError("invalid SSID length")
         if key == "key" and not (8 <= size <= 63 or re.fullmatch(r"[0-9a-fA-F]{64}", value)):
             raise ValueError("invalid passphrase length")
+        if key == "disabled" and value not in {"0", "1"}:
+            raise ValueError("invalid AP state")
     return data.copy()
 
 
@@ -193,16 +233,44 @@ def apply_wifi(section, data):
         raise ValueError("section is not an AP")
     if "key" in values and current.get("encryption", "").split("+")[0] not in {"psk", "psk2", "psk-mixed", "sae", "sae-mixed"}:
         raise ValueError("unsupported security mode")
+    return apply_change(Change("wireless", section, "wifi-iface", values))
+
+
+def apply_network_config(resource, section, values, *, remove=False):
+    if not isinstance(resource, str) or resource not in RESOURCES or not isinstance(remove, bool):
+        raise ValueError("unknown configuration resource")
+    package = RESOURCES[resource][0]
+    current = rpc("uci", "get", {"config": package}).get("values", {})
+    return apply_change(build_change(resource, section, values, {package: current}, remove=remove))
+
+
+def apply_change(change):
     session = rpc("session", "create", {"timeout": 180})["ubus_rpc_session"]
     options = {"ubus_rpc_session": session}
+    config = {**options, "config": change.package}
+    section = {**config, "section": change.section}
     try:
-        rpc("session", "grant", {**options, "scope": "uci", "objects": [["wireless", "read"], ["wireless", "write"]]})
-        rpc("uci", "set", {**options, "config": "wireless", "section": section, "values": values})
-    except RouterError:
+        rpc("session", "grant", {**options, "scope": "uci", "objects": [[change.package, "read"], [change.package, "write"]]})
+        if change.remove:
+            rpc("uci", "delete", section)
+        elif change.create:
+            rpc("uci", "add", {**config, "name": change.section, "type": change.section_type, "values": change.values})
+        else:
+            if change.values:
+                rpc("uci", "set", {**section, "values": change.values})
+            if change.delete_options:
+                rpc("uci", "delete", {**section, "options": change.delete_options})
+        if not rpc("uci", "changes", config).get("changes"):
+            raise ValueError("no changed options")
+    except (RouterError, ValueError):
         try:
             rpc("session", "destroy", options)
         except RouterError:
             pass
         raise
-    rpc("uci", "apply", {**options, "rollback": True, "timeout": 60})
+    deadline = time.monotonic() + 58
+    try:
+        rpc("uci", "apply", {**options, "rollback": True, "timeout": 60})
+    except RouterTransportError as exc:
+        raise UnconfirmedApply(session, deadline) from exc
     return session

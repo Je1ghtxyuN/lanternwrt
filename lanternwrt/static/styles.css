@@ -30,6 +30,10 @@
 .wifi-identity,.wifi-meta,.wifi-state{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.wifi-identity{justify-content:space-between;align-items:flex-start}.wifi-identity h3{overflow-wrap:anywhere}.wifi-meta{margin-top:4px}
 .wifi-meta .tag{padding:1px 7px}.wifi-facts{padding:9px 0 0}
 .split .radio-grid{grid-template-columns:1fr}
+.config-split{grid-template-columns:minmax(0,1.65fr) minmax(270px,1fr)}.config-split .interface-grid{grid-template-columns:1fr}
+.transaction{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}.transaction button+button{margin-left:6px}
+.danger{color:#a12840}
+@media(max-width:1050px){.config-split{grid-template-columns:1fr}}
 .signal-readout{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
 .signal-bars{display:inline-flex;align-items:end;gap:2px;height:15px;flex-shrink:0}
 .signal-bars i{width:3px;border-radius:1px;background:#d5deee;height:5px}

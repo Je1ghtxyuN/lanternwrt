@@ -6,11 +6,13 @@
 - [x] Verify that the router's deployment key can invoke the status collector and cannot execute arbitrary commands. Filter configuration fields before returning them.
 - [x] Check startup, live telemetry, write rejection, and container restart on Kwrt.
 - [x] Boot a stock OpenWrt image in an isolated VM and verify SSH and live telemetry.
-- [ ] Update the English and Simplified Chinese READMEs with the demonstrated compatibility and publish the GitHub prerelease.
+- [x] Update the English and Simplified Chinese READMEs with the demonstrated compatibility and publish the GitHub prerelease.
 
 ## 1.0
 
-- [ ] Add typed UCI changes for interfaces, DHCP/DNS, firewall, routes, and wireless.
-- [ ] Verify apply, confirm, reject, and automatic rollback, including an interrupted management connection in the test VM.
-- [ ] Exercise the supported changes in the WebUI and document network topology, firmware, and platform coverage.
-- [ ] Tag and publish the tested release.
+- [x] Add typed UCI changes for interfaces, DHCP/DNS, IPv4 port forwards, static routes, and existing wireless APs.
+- [x] Verify apply, confirm, reject, and automatic rollback, including a LAN address change that interrupted the WebUI's management connection on the OpenWrt 25.12.6 test VM.
+- [x] Verify simulated Wi-Fi association with the updated SSID and WPA2 key and again with the original settings after rollback.
+- [x] Exercise configuration forms and transaction recovery in Chrome, and document the tested firmware and platform coverage.
+
+Release tags and downloadable source archives are recorded on [GitHub Releases](https://github.com/Je1ghtxyuN/lanternwrt/releases).

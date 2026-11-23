@@ -86,9 +86,9 @@ class RouterTests(unittest.TestCase):
     @patch("lanternwrt.router.rpc")
     def test_access_point_edit_stages_only_requested_fields_with_rollback(self, rpc):
         rpc.side_effect = [{"values": {".type": "wifi-iface", "mode": "ap", "encryption": "psk2"}},
-                           {"ubus_rpc_session": "token"}, {}, {}, {}]
+                           {"ubus_rpc_session": "token"}, {}, {}, {"changes": [["set", "guest", "ssid", "Guest Wi-Fi"]]}, {}]
         self.assertEqual(apply_wifi("guest", {"ssid": "Guest Wi-Fi"}), "token")
-        self.assertEqual(rpc.call_args_list[-2].args, ("uci", "set", {
+        self.assertEqual(rpc.call_args_list[-3].args, ("uci", "set", {
             "ubus_rpc_session": "token", "config": "wireless", "section": "guest",
             "values": {"ssid": "Guest Wi-Fi"},
         }))

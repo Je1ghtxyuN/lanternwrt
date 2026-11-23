@@ -10,11 +10,12 @@
 - 查看各接口的 RX/TX、IPv4 和 IPv6 地址、设备与网桥成员图、以太网载波与协商速率，以及路由。
 - 查看 Wi-Fi 射频、信道和频率、AP／STA 模式。固件提供 iwinfo 时，可查看已关联站点的信号与物理层速率。
 - 查看 DHCP／DNS 配置和防火墙规则，搜索 IPv4 DHCP 租约。
-- 可选编辑现有 Wi-Fi AP 的 SSID 和密码，通过 OpenWrt rpcd 在未确认时自动回退。
+- 可选编辑现有 Wi-Fi AP、受支持的接口、DHCP 地址池和上游 DNS，管理 IPv4 端口转发与 IPv4／IPv6 静态路由。
+- 配置需确认才会保留。未确认的更改由 OpenWrt rpcd 自动回退。
 
-LanternWrt 运行在独立主机，通过 SSH 和 ubus 读取路由器。接口名称和无线能力由设备返回。当前是早期版本，接口、DHCP／DNS、防火墙和路由页面暂时只读。
+LanternWrt 运行在独立主机，通过 SSH 和 ubus 与 OpenWrt 通信。接口名称和无线能力由设备返回。路由器模式默认只读。
 
-[Beta 版本](https://github.com/Je1ghtxyuN/lanternwrt/releases/tag/v0.1.0-beta) 可用于监控和试用。
+[GitHub 发布版本](https://github.com/Je1ghtxyuN/lanternwrt/releases)
 
 ## 快速开始
 
@@ -57,13 +58,23 @@ docker run --rm -p 127.0.0.1:8787:8787 lanternwrt
 
 使用 Dropbear 进行只读部署时，可以[将监控密钥限制为仅执行状态采集器](docs/read-only-ssh.md)。
 
-### 可选开启 Wi-Fi 写入
+### 可选开启配置写入
 
-设置 `LANTERN_ENABLE_WRITES=1` 后可编辑现有的 AP。读写均使用部署主机的 SSH 身份。固件需要支持相应的 rpcd 会话和 UCI 方法，并允许运行临时 UCI 会话。应用后应在回退窗口结束前明确确认。修改当前使用的 Wi-Fi 时，建议通过有线链路管理。
+设置 `LANTERN_ENABLE_WRITES=1` 后可修改配置。部署主机的 SSH 身份需要有权创建 rpcd 会话并暂存 UCI 选项。只允许执行采集器的专用密钥无法执行写入。
+
+| 页面 | 支持的操作 |
+| --- | --- |
+| 接口 | 编辑现有的 IPv4／IPv6 静态地址、DHCP、DHCPv6 和 PPPoE 接口 |
+| Wi-Fi | 修改现有 AP 的 SSID、密码和启用状态 |
+| DHCP / DNS | 调整现有 IPv4 地址池和租期，设置上游 DNS 服务器 IP |
+| 防火墙 | 新增、编辑、删除 IPv4 TCP／UDP 端口转发 |
+| 路由 | 新增、编辑、删除 IPv4 和 IPv6 静态路由 |
+
+应用配置后，检查是否生效，再点击「保留更改」，也可以主动「回退」。如果管理连接断开而无法确认，rpcd 会在 60 秒后自动回退。修改正在使用的 Wi-Fi 时，建议通过有线链路管理。
 
 ## 兼容性与开发
 
-已在运行 Kwrt 25.12.0 的 360 T7 和运行原版 OpenWrt 25.12.6 的 x86/64 虚拟机上验证只读采集。Kwrt 上验证了状态采集、只读保护以及独立 Linux Docker 容器的重启恢复，x86/64 虚拟机用于有线状态采集测试。演示和自动化测试无需连接路由器。其他 OpenWrt 构建的 ubus 对象与 DHCP 租约格式可能不同，真实设备写入仍属实验功能。
+已在运行 Kwrt 25.12.0 的 360 T7 和运行 OpenWrt 25.12.6 的 x86/64 虚拟机上验证只读采集。Kwrt 上验证了状态采集、只读保护和独立 Linux Docker 容器的重启恢复，配置写入在 x86/64 虚拟机上验证。其他固件的 ubus 对象与 DHCP 租约格式可能不同。
 
 ```sh
 python3 -m unittest discover -s tests

@@ -10,11 +10,12 @@ A self-hosted WebUI for OpenWrt. View interfaces, traffic and router resources f
 - Per-interface RX/TX, IPv4 and IPv6 addresses, device and bridge member diagrams, Ethernet carrier and negotiated speed, and routes.
 - Wi-Fi radios, channels and frequencies, AP/STA mode, and associated station signal and PHY rates when the firmware exposes iwinfo.
 - DHCP/DNS configuration, firewall rules and a searchable IPv4 DHCP lease list.
-- Optional SSID and passphrase editing for existing Wi-Fi APs, with an explicit confirmation window backed by OpenWrt rpcd rollback.
+- Optional editing for existing Wi-Fi APs, supported interfaces, DHCP pools and upstream DNS servers, plus IPv4 port forwards and IPv4/IPv6 static routes.
+- Explicit apply and confirm, with an automatic rollback window backed by OpenWrt rpcd.
 
-LanternWrt runs on a separate host and reads the router through SSH and ubus. Interface names and available Wi-Fi capabilities come from the device. This is an early release. Interface, DHCP/DNS, firewall and routing screens are currently read-only.
+LanternWrt runs on a separate host and talks to OpenWrt through SSH and ubus. Interface names and available Wi-Fi capabilities come from the device. Router mode starts read-only.
 
-The [beta release](https://github.com/Je1ghtxyuN/lanternwrt/releases/tag/v0.1.0-beta) supports monitoring and evaluation.
+[GitHub releases](https://github.com/Je1ghtxyuN/lanternwrt/releases)
 
 ## Quick start
 
@@ -57,13 +58,23 @@ For router mode, add `--router` after the image name. Set `LANTERN_SSH_TARGET` a
 
 For a read-only deployment using Dropbear, you can [restrict the monitoring key to the status collector](docs/read-only-ssh.md).
 
-### Optional Wi-Fi writes
+### Optional configuration writes
 
-Set `LANTERN_ENABLE_WRITES=1` to enable edits to existing APs. Reads and writes use the host's SSH identity. Writes require a firmware version with the relevant rpcd session and UCI methods, and the ability to create an ephemeral UCI session. Apply, then explicitly confirm before the rollback window ends. Use a wired management path when changing the Wi-Fi network you are connected to.
+Set `LANTERN_ENABLE_WRITES=1` to enable changes. The SSH identity must be permitted to create rpcd sessions and stage UCI options. A key restricted to the read-only collector cannot do this.
+
+| Screen | Supported changes |
+| --- | --- |
+| Interfaces | Edit existing static IPv4/IPv6, DHCP, DHCPv6 or PPPoE interfaces |
+| Wi-Fi | Change SSID, passphrase and enabled state of existing APs |
+| DHCP / DNS | Change existing IPv4 lease ranges and lease time, and set plain upstream DNS server addresses |
+| Firewall | Add, edit and delete IPv4 TCP/UDP port forwards |
+| Routes | Add, edit and delete IPv4 and IPv6 static routes |
+
+Apply a change, then choose **Keep changes** after verifying its effect, or **Revert** to undo it. If management disconnects and you cannot confirm, rpcd rolls back after 60 seconds. Use a wired management path when changing the Wi-Fi network you are connected to.
 
 ## Compatibility and development
 
-Read-only collection has been smoke-tested on a 360 T7 running Kwrt 25.12.0 and an x86/64 VM running stock OpenWrt 25.12.6. The Kwrt test covered telemetry, read-only enforcement and restarting the separate Linux Docker container. The x86/64 VM test covered wired telemetry. The demo and automated tests run without a router. Other OpenWrt builds can expose different ubus objects and DHCP lease formats. Live configuration changes are experimental.
+Read-only collection has been smoke-tested on a 360 T7 running Kwrt 25.12.0 and an x86/64 VM running OpenWrt 25.12.6. The Kwrt test covered telemetry, read-only enforcement and restarting the separate Linux Docker container. Configuration writes were tested in the x86/64 VM. Firmware variants can expose different ubus objects and DHCP lease formats.
 
 ```sh
 python3 -m unittest discover -s tests
