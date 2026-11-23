@@ -5,9 +5,11 @@ import re
 import shlex
 import subprocess
 
+from .telemetry import interface_status, network_devices, wireless_status
+
 
 PACKAGES = {
-    "network": "proto device type ports vlan vid ipaddr netmask gateway dns metric",
+    "network": "name proto device type ports vlan vid ipaddr netmask gateway dns metric",
     "wireless": "device mode ssid encryption network disabled band channel htmode",
     "dhcp": "interface start limit leasetime ignore dhcpv4 dhcpv6 ra mac ip name server",
     "firewall": "name network input output forward masq src dest proto src_ip dest_ip src_dport dest_port target family enabled",
@@ -23,7 +25,16 @@ section board ubus call system board
 section info ubus call system info
 section devices ubus call network.device status
 section wifi_status ubus call network.wireless status
+if command -v jsonfilter >/dev/null; then
+    for ifname in $(ubus call iwinfo devices 2>/dev/null | jsonfilter -e '@.devices[*]'); do
+        case "$ifname" in *[!a-zA-Z0-9_.-]*) continue;; esac
+        args=$(printf '{"device":"%s"}' "$ifname")
+        section "iwinfo:$ifname" ubus call iwinfo info "$args"
+        section "assoc:$ifname" ubus call iwinfo assoclist "$args"
+    done
+fi
 section leases cat /tmp/dhcp.leases
+section neighbors ip neigh show
 section storage df -kP /
 section counters cat /proc/net/dev
 section cpu cat /proc/stat
@@ -63,7 +74,7 @@ def read_router():
 
 
 def snapshot(raw):
-    segments = re.split(r"(?:^|\n)@@([a-z0-9_]+)\n", raw)
+    segments = re.split(r"(?:^|\n)@@([a-z0-9_]+(?::[A-Za-z0-9_.-]+)?)\n", raw)
     blocks = dict(zip(segments[1::2], segments[2::2]))
     def get(name):
         try:
@@ -74,15 +85,6 @@ def snapshot(raw):
     dump = get("interfaces")
     if dump is None or not isinstance(dump.get("interface"), list):
         raise RouterError("OpenWrt network.interface is unavailable")
-    interfaces = []
-    for interface in dump["interface"]:
-        addresses = [f"{addr['address']}/{addr['mask']}"
-                     for family in ("ipv4-address", "ipv6-address")
-                     for addr in interface.get(family, [])
-                     if "address" in addr and "mask" in addr]
-        interfaces.append({"name": interface["interface"], "device": interface.get("l3_device") or interface.get("device"),
-                           "protocol": interface.get("proto"), "up": interface.get("up"),
-                           "addresses": addresses, "dns": interface.get("dns-server", [])})
     configs = {}
     for name, fields in PACKAGES.items():
         config = get(name)
@@ -91,23 +93,16 @@ def snapshot(raw):
              **{field: section[field] for field in fields.split() if field in section}}
             for section_id, section in config.get("values", {}).items()
         ]
-    wifi_live = get("wifi_status") or {}
-    radios = {item["id"]: item for item in configs["wireless"] or [] if item["type"] == "wifi-device"}
-    wifi = None if configs["wireless"] is None else []
-    for item in configs["wireless"] or []:
-        if item["type"] != "wifi-iface":
-            continue
-        radio = radios.get(item.get("device"), {})
-        live = wifi_live.get(item.get("device"), {})
-        status = next((row for row in live.get("interfaces", []) if row.get("section") == item["id"]), {})
-        wifi.append({**item, "band": radio.get("band"), "channel": radio.get("channel"),
-                     "ifname": status.get("ifname"), "up": bool(status.get("ifname")) if wifi_live else None})
+    network_config = {item["id"]: item for item in configs["network"] or [] if item["type"] == "interface"}
+    interfaces = [interface_status(interface, network_config.get(interface["interface"], {})) for interface in dump["interface"]]
     info = get("info") or {}
     board = get("board") or {}
     storage_match = re.search(r"(\d+)%\s+/$", blocks.get("storage", "").strip())
     cpu = next((line.split()[1:9] for line in blocks.get("cpu", "").splitlines() if line.startswith("cpu ")), [])
-    devices = get("devices")
-    leases = [line.split() for line in blocks.get("leases", "").splitlines()]
+    lease_fields = [line.split() for line in blocks.get("leases", "").splitlines()]
+    leases = [{"expires": int(parts[0]), "mac": parts[1], "ip": parts[2], "name": parts[3]}
+              for parts in lease_fields if len(parts) >= 4 and parts[0].isdecimal()]
+    wifi, radios, stations = wireless_status(configs["wireless"], get, leases, blocks.get("neighbors", ""))
     counters = {}
     for line in blocks.get("counters", "").splitlines():
         label, sep, values = line.partition(":")
@@ -116,19 +111,13 @@ def snapshot(raw):
             counters[label.strip()] = [int(fields[0]), int(fields[8])]
     return {
         "board": {key: board.get(key) for key in ("model", "hostname", "kernel", "release")},
-        "interfaces": interfaces, "wifi": wifi, "configs": configs,
+        "interfaces": interfaces, "wifi": wifi, "radios": radios, "stations": stations, "configs": configs,
         "uptime": info.get("uptime"), "memory": info.get("memory"),
         "storage": int(storage_match[1]) if storage_match else None,
         "cpu": [int(value) for value in cpu] if all(value.isdecimal() for value in cpu) else [],
         "counters": counters,
-        "ports": None if devices is None else [
-            {"name": name, "type": value.get("type"), "up": value.get("up"),
-             "carrier": value.get("carrier"), "speed": value.get("speed"),
-             "mtu": value.get("mtu"), "mac": value.get("macaddr")}
-            for name, value in devices.items() if isinstance(value, dict)
-        ],
-        "leases": [{"expires": int(parts[0]), "mac": parts[1], "ip": parts[2], "name": parts[3]}
-                   for parts in leases if len(parts) >= 4 and parts[0].isdecimal()],
+        "ports": network_devices(get("devices"), wifi, counters),
+        "leases": leases,
         "routes": {family: blocks.get("routes" + family, "").strip().splitlines() for family in ("4", "6")},
     }
 

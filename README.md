@@ -7,8 +7,9 @@ A self-hosted WebUI for OpenWrt. View interfaces, traffic and router resources f
 ## Features
 
 - Overview of active interfaces, DHCP leases, uptime, CPU, memory and storage.
-- Per-interface RX/TX rates, IPv4 and IPv6 addresses, network devices and routes.
-- Wi-Fi interface modes, DHCP/DNS configuration, firewall rules and a searchable IPv4 DHCP lease list.
+- Per-interface RX/TX, IPv4 and IPv6 addresses, device and bridge member diagrams, Ethernet carrier and negotiated speed, and routes.
+- Wi-Fi radios, channels and frequencies, AP/STA mode, and associated station signal and PHY rates when the firmware exposes iwinfo.
+- DHCP/DNS configuration, firewall rules and a searchable IPv4 DHCP lease list.
 - Optional SSID and passphrase editing for existing Wi-Fi APs, with an explicit confirmation window backed by OpenWrt rpcd rollback.
 
 LanternWrt runs on a separate host and reads the router through SSH and ubus. Interface names and available Wi-Fi capabilities come from the device. This is an early release. Interface, DHCP/DNS, firewall and routing screens are currently read-only.

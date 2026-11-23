@@ -25,7 +25,12 @@
       ],
       "dns": [
         "192.0.2.53"
-      ]
+      ],
+      "lowerDevice": "eth0",
+      "gateways": [
+        "192.0.2.1"
+      ],
+      "uptime": 288000
     },
     {
       "name": "lan",
@@ -35,7 +40,9 @@
       "addresses": [
         "192.168.1.1/24"
       ],
-      "dns": []
+      "dns": [],
+      "lowerDevice": "br-lan",
+      "uptime": 288000
     },
     {
       "name": "wwan",
@@ -57,7 +64,19 @@
       "network": [
         "lan"
       ],
-      "up": true
+      "up": true,
+      "device": "radio0",
+      "ifname": "wlan0",
+      "bssid": "02:00:00:01:00:01",
+      "signal": -58,
+      "noise": -90,
+      "bitrate": 144400,
+      "security": {
+        "enabled": true,
+        "ciphers": [
+          "ccmp"
+        ]
+      }
     },
     {
       "id": "fast",
@@ -69,7 +88,19 @@
       "network": [
         "lan"
       ],
-      "up": true
+      "up": true,
+      "device": "radio1",
+      "ifname": "wlan1-ap0",
+      "bssid": "02:00:00:01:00:02",
+      "signal": -51,
+      "noise": -94,
+      "bitrate": 866700,
+      "security": {
+        "enabled": true,
+        "ciphers": [
+          "ccmp"
+        ]
+      }
     },
     {
       "id": "uplink",
@@ -79,7 +110,10 @@
       "network": [
         "wwan"
       ],
-      "up": false
+      "up": false,
+      "device": "radio1",
+      "disabled": true,
+      "encryption": "none"
     }
   ],
   "ports": [
@@ -89,14 +123,73 @@
       "up": true,
       "carrier": true,
       "speed": "1000F",
-      "mtu": 1500
+      "mtu": 1500,
+      "kind": "ethernet",
+      "mac": "02:00:00:02:00:01"
     },
     {
       "name": "br-lan",
       "type": "bridge",
       "up": true,
       "carrier": true,
+      "mtu": 1500,
+      "kind": "bridge",
+      "mac": "02:00:00:02:00:02",
+      "members": [
+        "lan1",
+        "lan2",
+        "wlan0",
+        "wlan1-ap0"
+      ],
+      "statistics": {
+        "rx_bytes": 28902564516,
+        "rx_packets": 36042705,
+        "tx_bytes": 4896078957,
+        "tx_packets": 4938614
+      }
+    },
+    {
+      "name": "lan1",
+      "kind": "ethernet",
+      "type": "Ethernet",
+      "up": true,
+      "carrier": true,
+      "speed": "1000F",
       "mtu": 1500
+    },
+    {
+      "name": "lan2",
+      "kind": "ethernet",
+      "type": "Ethernet",
+      "up": true,
+      "carrier": false,
+      "mtu": 1500
+    },
+    {
+      "name": "wlan0",
+      "kind": "wireless",
+      "type": "Wireless",
+      "up": true,
+      "carrier": true
+    },
+    {
+      "name": "wlan1-ap0",
+      "kind": "wireless",
+      "type": "Wireless",
+      "up": true,
+      "carrier": true
+    },
+    {
+      "name": "pppoe-wan",
+      "kind": "pppoe",
+      "type": "PPPoE",
+      "up": true,
+      "statistics": {
+        "rx_bytes": 27846256945,
+        "rx_packets": 33289576,
+        "tx_bytes": 6496865212,
+        "tx_packets": 5456648
+      }
     }
   ],
   "leases": [
@@ -175,5 +268,88 @@
         ]
       }
     ]
-  }
+  },
+  "radios": [
+    {
+      "id": "radio0",
+      "band": "2g",
+      "channel": 6,
+      "frequency": 2437,
+      "hardware": "802.11ax radio",
+      "hwmodes": [
+        "b",
+        "g",
+        "n",
+        "ax"
+      ],
+      "htmode": "HE20",
+      "up": true
+    },
+    {
+      "id": "radio1",
+      "band": "5g",
+      "channel": 36,
+      "frequency": 5180,
+      "hardware": "802.11ax radio",
+      "hwmodes": [
+        "a",
+        "n",
+        "ac",
+        "ax"
+      ],
+      "htmode": "HE80",
+      "up": true
+    }
+  ],
+  "stations": [
+    {
+      "wifi": "fast",
+      "mac": "02:00:00:00:00:10",
+      "host": "Workstation",
+      "addresses": [
+        "192.168.1.10",
+        "2001:db8::10"
+      ],
+      "signal": -51,
+      "noise": -94,
+      "rx": {
+        "rate": 866700,
+        "mhz": 80,
+        "mcs": 9,
+        "nss": 2,
+        "vht": true
+      },
+      "tx": {
+        "rate": 650000,
+        "mhz": 80,
+        "mcs": 8,
+        "nss": 2,
+        "vht": true
+      }
+    },
+    {
+      "wifi": "main",
+      "mac": "02:00:00:00:00:12",
+      "host": "Phone",
+      "addresses": [
+        "192.168.1.12"
+      ],
+      "signal": -63,
+      "noise": -90,
+      "rx": {
+        "rate": 86400,
+        "mhz": 20,
+        "mcs": 8,
+        "nss": 1,
+        "he": true
+      },
+      "tx": {
+        "rate": 77400,
+        "mhz": 20,
+        "mcs": 6,
+        "nss": 1,
+        "he": true
+      }
+    }
+  ]
 }

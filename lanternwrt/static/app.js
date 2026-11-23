@@ -25,6 +25,17 @@ const copy = {
   timeout: ["Could not reach the dashboard", "无法连接面板"], navigation: ["Main navigation", "主导航"],
   skip: ["Skip to content", "跳到主要内容"],
   mtu: ["MTU", "MTU"], speed: ["Link speed", "链路速率"],
+  ethernet: ["Ethernet", "以太网"], bridge: ["Bridge", "网桥"], wireless: ["Wireless", "无线"],
+  linkUp: ["Link up", "链路已连接"], linkDown: ["No carrier", "无载波"], pendingLink: ["Pending", "连接中"],
+  disabled: ["Disabled", "已禁用"], disconnected: ["Not connected", "未连接"],
+  lower: ["Lower device", "下层设备"], gateway: ["Gateway", "网关"], members: ["Bridge members", "网桥成员"],
+  duplexFull: ["full duplex", "全双工"], duplexHalf: ["half duplex", "半双工"],
+  packets: ["packets", "包"], signal: ["Signal / noise", "信号 / 噪声"],
+  signals: ["Signal", "信号"], noise: ["Noise", "噪声"], radios: ["Radio overview", "射频概览"],
+  stations: ["Associated stations", "已关联站点"], bitrate: ["Link rate", "链路速率"],
+  open: ["Open", "开放"], host: ["Host", "主机"], otherPorts: ["Device inventory", "网络设备清单"],
+  static: ["Static address", "静态地址"], unmanaged: ["Unmanaged", "不受管理"],
+  deviceConfig: ["Device configuration", "设备配置"],
 };
 const paths = {overview: "M3 10 12 3l9 7v10H3z M9 20v-7h6v7",
   network: "M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 16a6 6 0 0 1 8 0M12 20h.01",
@@ -96,6 +107,76 @@ function interfaces(data) {
   return card(t("interfaces"), table(["name", "protocol", "state", "address", "device"], data.interfaces.map((item) =>
     [mono(item.name), show(item.protocol), label(item.up), mono(item.addresses), mono(item.device)])));
 }
+function indicator(text, active) {
+  return '<span class="status' + (active ? " up" : "") + '"><i class="dot' + (active ? " up" : "") + '"></i>' + e(text) + "</span>";
+}
+function definition(key, value) {
+  return '<div><dt>' + t(key) + "</dt><dd>" + value + "</dd></div>";
+}
+function formatNumber(value, max = 1) {
+  return new Intl.NumberFormat(state.lang ? "zh-CN" : "en", {maximumFractionDigits: max}).format(value);
+}
+function amount(value, unit, digits) {
+  return Number.isFinite(value) ? formatNumber(value, digits) + " " + unit : "—";
+}
+function protocol(value) {
+  return show(({static: t("static"), dhcp: "DHCP", dhcpv6: "DHCPv6", pppoe: "PPPoE",
+    wireguard: "WireGuard", none: t("unmanaged")})[value] || value);
+}
+function speed(value) {
+  const match = /^(\d+)([FH])?$/.exec(value);
+  return !match ? show(value) : amount(Number(match[1]), "Mbps") +
+    (match[2] ? " · " + t(match[2] === "F" ? "duplexFull" : "duplexHalf") : "");
+}
+function bytes(value) {
+  if (!Number.isFinite(value)) return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  const index = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(Math.max(value, 1)) / Math.log(1024))));
+  return amount(value / 1024 ** index, units[index], 2);
+}
+function deviceTile(port, name = port?.name, connected) {
+  const kind = port?.kind;
+  const mark = kind === "ethernet" ? '<i class="rj45"></i>' :
+    icon(kind === "wireless" ? "network" : kind === "bridge" ? "overview" : "devices");
+  const carrier = connected ?? port?.carrier;
+  const stateText = carrier === true ? "linkUp" : carrier === false ? "linkDown" : "unknown";
+  return '<div class="device-tile" data-link="' + (carrier === true ? "up" : carrier === false ? "down" : "unknown") +
+    '"><div class="device-mark">' + mark + '</div><b>' + show(name) + "</b>" + indicator(t(stateText), carrier === true) +
+    (port?.speed != null ? '<span class="link-speed">' + speed(port.speed) + "</span>" : "") + "</div>";
+}
+function interfaceDetails(data) {
+  const ports = new Map((data.ports ?? []).map((port) => [port.name, port]));
+  const conduits = new Set((data.ports ?? []).map((port) => port.conduit).filter(Boolean));
+  const physical = [...ports.values()].filter((port) => port.kind === "ethernet" && !conduits.has(port.name));
+  const strip = physical.length ? card(t("ethernet"), '<div class="port-grid">' + physical.map((port) => deviceTile(port)).join("") + "</div>") : "";
+  const cards = data.interfaces.map((item) => {
+    const device = ports.get(item.device);
+    const lower = item.lowerDevice !== item.device && item.lowerDevice ? ports.get(item.lowerDevice) : null;
+    const fields = [["IPv4", item.addresses.filter((address) => !address.includes(":"))],
+      ["IPv6", item.addresses.filter((address) => address.includes(":"))], ["gateway", item.gateways], ["DNS", item.dns]];
+    const stats = device?.statistics ?? {};
+    const total = (direction) => bytes(stats[direction + "_bytes"]) +
+      (Number.isFinite(stats[direction + "_packets"]) ? " · " + amount(stats[direction + "_packets"], t("packets"), 0) : "");
+    const info = '<dl class="facts">' + definition("protocol", protocol(item.protocol)) +
+      definition("uptime", e(duration(item.uptime))) + definition("MAC", mono(device?.mac || lower?.mac)) +
+      fields.map(([key, value]) => definition(key, mono(value))).join("") +
+      definition("receive", e(total("rx"))) + definition("transmit", e(total("tx"))) + "</dl>";
+    const related = [...new Set([...(item.lowerDevice && item.lowerDevice !== item.device ? [item.lowerDevice] : []),
+      ...(device?.members ?? [])])].filter((name) => name !== item.device);
+    const diagram = item.device ? '<div class="device-map">' + deviceTile(device, item.device) +
+      (related.length ? '<div class="map-branch"><div class="map-label">' + t(device?.members?.length ? "members" : "lower") +
+      '</div><div class="map-leaves">' + related.map((name) => deviceTile(ports.get(name), name)).join("") + "</div></div>" : "") + "</div>" : "";
+    const status = item.up ? "up" : item.pending ? "pendingLink" : item.up === false ? "down" : "unknown";
+    return '<article class="card interface-card"><div class="card-title"><h3>' + e(item.name) + "</h3>" +
+      indicator(t(status), item.up) + "</div>" + diagram + info + "</article>";
+  }).join("");
+  const inventory = '<details class="card inventory"' + ($("#content .inventory")?.open ? " open" : "") + "><summary>" + t("otherPorts") + '</summary>' +
+    table(["name", "type", "state", "mtu", "speed"], data.ports?.map((port) =>
+      [mono(port.name), show(port.type), label(port.carrier ?? port.up), show(port.mtu), speed(port.speed)]) ?? null) +
+    card(t("deviceConfig"), table(["name", "type", "values"],
+      configRows(data.configs.network?.filter(({type}) => type !== "interface")))) + "</details>";
+  return '<div class="panel-stack">' + strip + '<div class="interface-grid">' + cards + "</div>" + inventory + "</div>";
+}
 function overview(data) {
   return '<div class="grid metrics">' + metric("active", data.interfaces.filter((item) => item.up).length, "network") +
     metric("leases", data.leases.length, "devices") + metric("uptime", duration(data.uptime), "overview") +
@@ -106,9 +187,72 @@ function configRows(items) {
     Object.entries(values).map(([key, value]) => '<span class="small-data"><code>' + e(key) + "</code> " + show(value) + "</span>").join("") || "—"]) ?? null;
 }
 function renderWifi(data) {
-  const rows = data.wifi?.map((row) => [show(row.ssid || row.id), show(row.band), mono(row.mode?.toUpperCase()), show(row.encryption),
-    label(row.up), data.writes && row.mode === "ap" ? '<button class="btn" data-edit="' + e(row.id) + '">' + t("edit") + "</button>" : ""]) ?? null;
-  const listing = card("Wi-Fi", table(["name", "band", "mode", "encryption", "state", ""], rows));
+  const band = (raw, freq) => {
+    if (Number.isFinite(freq)) {
+      if (freq >= 2400 && freq <= 2500) return "2.4 GHz";
+      if (freq >= 4900 && freq < 5925) return "5 GHz";
+      if (freq >= 5925 && freq <= 7125) return "6 GHz";
+      if (freq >= 57000 && freq <= 71000) return "60 GHz";
+    }
+    return ({ "2g": "2.4 GHz", "5g": "5 GHz", "6g": "6 GHz", "60g": "60 GHz" })[raw] || raw;
+  };
+  const dbm = (signal, noise) => {
+    const level = signal >= -55 ? 4 : signal >= -67 ? 3 : signal >= -75 ? 2 : 1;
+    const bars = Number.isFinite(signal) ? '<span class="signal-bars level-' + level +
+      '" aria-hidden="true"><i></i><i></i><i></i><i></i></span>' : "";
+    return '<span class="signal-readout">' + bars + e([amount(signal, "dBm", 0), amount(noise, "dBm", 0)].join(" / ")) + "</span>";
+  };
+  const securityName = (row) => {
+    if (row.security?.enabled === false || row.encryption === "none") return t("open");
+    const protocol = ({psk: "WPA-Personal", psk2: "WPA2-Personal", "psk-mixed": "WPA/WPA2-Personal",
+      sae: "WPA3-Personal", "sae-mixed": "WPA2/WPA3-Personal", wpa2: "WPA2-Enterprise", owe: "OWE"})[row.encryption?.split("+")[0]];
+    const ciphers = row.security?.ciphers?.map((value) => value.toUpperCase());
+    return [protocol || row.encryption, ciphers?.join(", ")].filter(Boolean).join(" · ") || "—";
+  };
+  const radios = data.radios?.length ? data.radios : [...new Map((data.wifi ?? [])
+    .map((row) => [row.device ?? "Wi-Fi", {id: row.device ?? "Wi-Fi", band: row.band, channel: row.channel}])).values()];
+  const wifiRows = (radio) => (data.wifi ?? []).filter((row) => (row.device ?? "Wi-Fi") === radio.id);
+  const radioCards = radios?.map((radio) => {
+    const standard = radio.hwmodes?.length ? "802.11" + radio.hwmodes.join("/") : null;
+    const title = '<div class="radio-heading"><div class="device-mark">' + icon("network") +
+      '</div><div><h3>' + show(radio.hardware || radio.id) + '</h3><code>' + e(radio.id) + '</code></div></div>';
+    const metrics = '<dl class="facts radio-facts">' + definition("band", show(band(radio.band, radio.frequency))) +
+      definition("channel", show(radio.channel) +
+        (Number.isFinite(radio.frequency) ? " · " + amount(radio.frequency / 1000, "GHz", 3) : "")) +
+      definition("802.11", show(standard)) + definition("HT mode", show(radio.htmode)) + "</dl>";
+    const rows = wifiRows(radio).map((row) => {
+      const stateText = row.disabled ? "disabled" : row.up === true ? "up" : row.up === false ? "disconnected" : "unknown";
+      const editButton = data.writes && row.mode === "ap" ? '<button class="btn" data-edit="' + e(row.id) + '">' + t("edit") + "</button>" : "";
+      return '<div class="wifi-interface"><div class="wifi-identity"><div><h3>' + show(row.ssid || row.id) + '</h3>' +
+        '<div class="wifi-meta"><span class="tag">' + show(row.mode?.toUpperCase()) + "</span>" +
+        mono(row.ifname ?? row.id) + "</div></div><div class=\"wifi-state\">" + indicator(t(stateText), row.up === true) +
+        editButton + '</div></div><dl class="facts wifi-facts">' + definition("BSSID", mono(row.bssid)) +
+        definition("network", mono(row.network)) + definition("encryption", e(securityName(row))) +
+        definition("signal", dbm(row.signal, row.noise)) +
+        definition("bitrate", e(amount(Number.isFinite(row.bitrate) ? row.bitrate / 1000 : null, "Mbps"))) + "</dl></div>";
+    }).join("");
+    return '<article class="card radio-card"><div class="card-title">' + title +
+      indicator(t(radio.disabled ? "disabled" : radio.up === true ? "up" : radio.pending ? "pendingLink" : radio.up === false ? "down" : "unknown"), radio.up === true) +
+      "</div>" + metrics + (rows || '<p class="empty">' + t("empty") + "</p>") + "</article>";
+  }).join("");
+  const rate = (info) => {
+    if (!Number.isFinite(info?.rate)) return "—";
+    const standard = info.eht ? "EHT" : info.he ? "HE" : info.vht ? "VHT" : info.ht ? "HT" : "";
+    const meta = [
+      Number.isFinite(info.mhz) ? info.mhz + " MHz" : "",
+      Number.isFinite(info.mcs) ? (standard ? standard + "-" : "") + "MCS " + info.mcs : standard,
+      Number.isFinite(info.nss) ? "NSS " + info.nss : "",
+    ].filter(Boolean).join(" · ");
+    return e(amount(info.rate / 1000, "Mbps")) + (meta ? '<span class="small-data">' + e(meta) + "</span>" : "");
+  };
+  const peers = data.stations?.map((row) => {
+    const wifi = data.wifi?.find((item) => item.id === row.wifi);
+    return [show(wifi?.ssid || row.wifi) + '<span class="small-data">' + show(wifi?.ifname) + "</span>", mono(row.mac),
+      show(row.host) + (row.addresses?.length ? '<span class="small-data">' + mono(row.addresses) + "</span>" : ""),
+      dbm(row.signal, row.noise), rate(row.rx), rate(row.tx)];
+  }) ?? null;
+  const listing = '<div class="panel-stack"><h2>' + t("radios") + '</h2><div class="radio-grid">' + radioCards +
+    "</div>" + card(t("stations"), table(["wifi", "MAC", "host", "signal", "receive", "transmit"], peers)) + "</div>";
   const selected = data.wifi?.find((row) => row.id === state.edit);
   if (!selected && !state.until) return listing;
   const security = ["psk", "psk2", "psk-mixed", "sae", "sae-mixed"].includes(selected?.encryption?.split("+")[0]);
@@ -121,12 +265,10 @@ function renderWifi(data) {
   return '<div class="split">' + listing + '<div class="editor">' + card(t("edit") + " Wi-Fi", editor) + "</div></div>";
 }
 function network(data, tab) {
-  const nav = '<nav class="tabs" aria-label="' + t("network") + '">' + tabs.filter((key) => key !== "wifi" || data.wifi?.length)
+  if (tab === "wifi" && !data.wifi?.length && !data.radios?.length) tab = "interfaces";
+  const nav = '<nav class="tabs" aria-label="' + t("network") + '">' + tabs.filter((key) => key !== "wifi" || data.wifi?.length || data.radios?.length)
     .map((key) => '<a href="#network/' + key + '"' + (tab === key ? ' aria-current="page"' : "") + ">" + t(key) + "</a>").join("") + "</nav>";
-  const panels = {interfaces: () => '<div class="panel-stack">' + interfaces(data) +
-      card(t("ports"), table(["name", "type", "state", "mtu", "speed"], data.ports?.map((port) =>
-        [mono(port.name), show(port.type), label(port.carrier ?? port.up), show(port.mtu), show(port.speed)]) ?? null)) +
-      card(t("device"), table(["name", "type", "values"], configRows(data.configs.network?.filter(({type}) => type !== "interface")))) + "</div>",
+  const panels = {interfaces: () => interfaceDetails(data),
     wifi: () => renderWifi(data),
     dhcp: () => card(t("dhcp"), table(["name", "type", "values"], configRows(data.configs.dhcp))),
     firewall: () => card(t("firewall"), table(["name", "type", "values"], configRows(data.configs.firewall))),
